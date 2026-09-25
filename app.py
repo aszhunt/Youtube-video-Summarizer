@@ -10,7 +10,7 @@ from fpdf import FPDF
 st.set_page_config(page_title="ASZ AI Ultra", page_icon="🔥", layout="wide")
 
 # 🔴 PUT YOUR GROQ API KEY HERE
-client = Groq(api_key="your_groq_api_key_here")
+client = Groq(api_key="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")
 
 # =====================
 # UI
@@ -73,7 +73,7 @@ Language: {lang}
 {text[:12000]}
 """
     res = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="openai/gpt-oss-120b",
         messages=[{"role": "user", "content": prompt}]
     )
     return res.choices[0].message.content
