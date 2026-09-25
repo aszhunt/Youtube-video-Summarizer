@@ -7,9 +7,8 @@ from fpdf import FPDF
 # =====================
 # CONFIG
 # =====================
-st.set_page_config(page_title="ASZ AI Ultra", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="ASZ AI Ultra V4", page_icon="🔥", layout="wide")
 
-# 🔴 PUT YOUR GROQ API KEY HERE
 client = Groq(api_key="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")
 
 # =====================
@@ -34,7 +33,7 @@ body {background:#0a0a0a; color:white;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="title">🔥 ASZ AI Video Intelligence</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">🔥 ASZ AI Video Intelligence V4</div>', unsafe_allow_html=True)
 
 # =====================
 # FUNCTIONS
@@ -49,34 +48,83 @@ def get_video_id(url):
 def get_transcript(video_id):
     try:
         data = YouTubeTranscriptApi.get_transcript(video_id)
-        return " ".join([x['text'] for x in data])
+        text = " ".join([x['text'] for x in data])
+        timestamps = [(x['start'], x['text']) for x in data]
+        return text, timestamps
     except:
-        return None
+        return None, None
 
-def ai_process(text, duration, lang):
+def ai_main(text, duration, lang):
     prompt = f"""
-You are a 20-year expert analyst.
+You are a 20-year expert.
 
-Analyze this YouTube transcript and give:
+Provide:
+1. Overview
+2. Key Points
+3. Insights
+4. Action Steps
+5. Most Important 20%
 
-1. 📌 Overview
-2. 🔥 Key Points
-3. 🧠 Deep Insights
-4. 🎯 Action Steps
-5. ⚡ Most Important 20% (critical insight)
-6. 🗂 Topic Breakdown
-7. 💬 Key Quotes
-
-Length: {duration}
 Language: {lang}
+Length: {duration}
 
 {text[:12000]}
 """
     res = client.chat.completions.create(
         model="openai/gpt-oss-120b",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role":"user","content":prompt}]
     )
     return res.choices[0].message.content
+
+
+def ai_timestamps(timestamps):
+    sample = timestamps[:200]
+    formatted = "\n".join([f"{int(t[0])} sec: {t[1]}" for t in sample])
+
+    prompt = f"""
+Summarize timeline into sections with timestamps.
+
+{formatted}
+"""
+    res = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role":"user","content":prompt}]
+    )
+    return res.choices[0].message.content
+
+
+def ai_shorts(text):
+    prompt = f"""
+Find 5 viral short clips ideas from this content.
+
+Give:
+- Hook
+- Clip idea
+- Why viral
+
+{text[:8000]}
+"""
+    res = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role":"user","content":prompt}]
+    )
+    return res.choices[0].message.content
+
+
+def ai_chat(text, question):
+    prompt = f"""
+Answer based ONLY on this video content:
+
+{text[:10000]}
+
+Question: {question}
+"""
+    res = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role":"user","content":prompt}]
+    )
+    return res.choices[0].message.content
+
 
 def create_pdf(text):
     pdf = FPDF()
@@ -87,78 +135,62 @@ def create_pdf(text):
     return pdf.output(dest="S").encode("latin-1")
 
 # =====================
-# TABS
+# UI INPUT
 # =====================
 
-tab1, tab2 = st.tabs(["📄 Single Video", "📊 Compare Videos"])
+url = st.text_input("🔗 YouTube Link")
 
-# ========= SINGLE =========
-with tab1:
+col1, col2 = st.columns(2)
 
-    url = st.text_input("🔗 YouTube Link")
+with col1:
+    duration = st.selectbox("⏱ Length", ["5 min","15 min","30 min"])
 
-    col1, col2 = st.columns(2)
+with col2:
+    lang = st.selectbox("🌐 Language", ["English","Roman Urdu","Urdu"])
 
-    with col1:
-        duration = st.selectbox("⏱ Summary Length", ["5 min", "15 min", "30 min"])
+# =====================
+# MAIN BUTTON
+# =====================
 
-    with col2:
-        lang = st.selectbox("🌐 Language", ["English", "Roman Urdu", "Urdu"])
+if st.button("🚀 Analyze Video"):
 
-    if st.button("🚀 Generate"):
+    vid = get_video_id(url)
 
-        vid = get_video_id(url)
+    if not vid:
+        st.error("Invalid URL")
+        st.stop()
 
-        if not vid:
-            st.error("Invalid URL")
-            st.stop()
+    text, timestamps = get_transcript(vid)
 
-        text = get_transcript(vid)
+    if not text:
+        st.error("No captions available")
+        st.stop()
 
-        if not text:
-            st.error("No captions available")
-            st.stop()
+    st.success("Processing...")
 
-        output = ai_process(text, duration, lang)
+    main = ai_main(text, duration, lang)
+    time_summary = ai_timestamps(timestamps)
+    shorts = ai_shorts(text)
 
-        st.markdown(f"<div class='box'>{output}</div>", unsafe_allow_html=True)
+    st.markdown("## 📊 Main Analysis")
+    st.markdown(f"<div class='box'>{main}</div>", unsafe_allow_html=True)
 
-        # AUDIO
-        st.audio(f"https://translate.google.com/translate_tts?ie=UTF-8&q={output[:200]}&tl=en&client=tw-ob")
+    st.markdown("## ⏱ Timeline Summary")
+    st.write(time_summary)
 
-        # DOWNLOAD
-        st.download_button("📥 TXT", output, "summary.txt")
+    st.markdown("## 🎬 Shorts Ideas")
+    st.write(shorts)
 
-        pdf = create_pdf(output)
-        st.download_button("📄 PDF", pdf, "summary.pdf")
+    # Chat
+    st.markdown("## 💬 Ask Question from Video")
+    q = st.text_input("Type your question")
 
-# ========= COMPARE =========
-with tab2:
+    if q:
+        ans = ai_chat(text, q)
+        st.write(ans)
 
-    url1 = st.text_input("Video 1 Link")
-    url2 = st.text_input("Video 2 Link")
+    # Download
+    full = main + "\n\n" + time_summary + "\n\n" + shorts
 
-    if st.button("⚔ Compare"):
-
-        v1 = get_video_id(url1)
-        v2 = get_video_id(url2)
-
-        t1 = get_transcript(v1)
-        t2 = get_transcript(v2)
-
-        if not t1 or not t2:
-            st.error("Missing captions in one video")
-            st.stop()
-
-        s1 = ai_process(t1, "15 min", "English")
-        s2 = ai_process(t2, "15 min", "English")
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.markdown("### 🎥 Video 1")
-            st.write(s1)
-
-        with c2:
-            st.markdown("### 🎥 Video 2")
-            st.write(s2)
+    st.download_button("📥 TXT", full, "full_summary.txt")
+    st.download_button("📄 PDF", create_pdf(full), "summary.pdf")
