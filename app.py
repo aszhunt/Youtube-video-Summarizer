@@ -4,16 +4,14 @@ from urllib.parse import urlparse, parse_qs
 from groq import Groq
 from fpdf import FPDF
 
-# =====================
 # CONFIG
-# =====================
-st.set_page_config(page_title="ASZ AI Video Tool", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="ASZ AI FINAL", page_icon="🔥", layout="wide")
 
 client = Groq(api_key="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")
 
-# =====================
+# -------------------------
 # FUNCTIONS
-# =====================
+# -------------------------
 
 def get_video_id(url):
     try:
@@ -28,26 +26,24 @@ def get_video_id(url):
 def get_transcript(video_id):
     try:
         ytt = YouTubeTranscriptApi()
-        data = ytt.fetch(video_id).to_raw_data()
+        transcript = ytt.fetch(video_id)
+
+        data = transcript.to_raw_data()
 
         text = " ".join([x['text'] for x in data])
-        timestamps = [(x['start'], x['text']) for x in data]
+        return text
 
-        return text, timestamps
-
-    except Exception:
-        return None, None
+    except Exception as e:
+        return None
 
 
 def ai_summary(text):
     prompt = f"""
-You are expert.
+Summarize this video:
 
-Give:
 - Overview
-- Key points
+- Key Points
 - Insights
-- Action steps
 
 {text[:12000]}
 """
@@ -71,15 +67,15 @@ def create_pdf(text):
     return pdf.output(dest="S").encode("latin-1")
 
 
-# =====================
+# -------------------------
 # UI
-# =====================
+# -------------------------
 
-st.title("🔥 ASZ AI Video Summarizer")
+st.title("🔥 ASZ FINAL VIDEO SUMMARIZER")
 
 url = st.text_input("Paste YouTube Link")
 
-if st.button("Generate Summary"):
+if st.button("Generate"):
 
     if not url:
         st.error("Enter link")
@@ -89,25 +85,25 @@ if st.button("Generate Summary"):
         st.error("Live videos not supported")
         st.stop()
 
-    vid = get_video_id(url)
+    video_id = get_video_id(url)
 
-    if not vid:
-        st.error("Invalid URL")
+    if not video_id:
+        st.error("Invalid link")
         st.stop()
 
-    text, timestamps = get_transcript(vid)
+    with st.spinner("Getting transcript..."):
+        text = get_transcript(video_id)
 
     if not text:
-        st.error("No captions found (video issue)")
+        st.warning("⚠️ Transcript not available for this video")
+        st.info("👉 Try another video with captions")
         st.stop()
 
-    with st.spinner("AI working..."):
+    with st.spinner("AI analyzing..."):
         result = ai_summary(text)
 
     st.success("Done")
-
     st.write(result)
 
-    # download
     st.download_button("Download TXT", result, "summary.txt")
     st.download_button("Download PDF", create_pdf(result), "summary.pdf")
