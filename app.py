@@ -1,5 +1,5 @@
 import streamlit as st
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 from urllib.parse import urlparse, parse_qs
 from groq import Groq
 from fpdf import FPDF
@@ -7,8 +7,9 @@ from fpdf import FPDF
 # =====================
 # CONFIG
 # =====================
-st.set_page_config(page_title="ASZ AI Ultra V4", page_icon="🔥", layout="wide")
+st.set_page_config(page_title="ASZ AI Video Intelligence", page_icon="🔥", layout="wide")
 
+# 🔴 PUT YOUR GROQ API KEY HERE
 client = Groq(api_key="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")
 
 # =====================
@@ -33,7 +34,7 @@ body {background:#0a0a0a; color:white;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="title">🔥 ASZ AI Video Intelligence V4</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">🔥 ASZ AI Video Intelligence (Final)</div>', unsafe_allow_html=True)
 
 # =====================
 # FUNCTIONS
@@ -41,51 +42,69 @@ st.markdown('<div class="title">🔥 ASZ AI Video Intelligence V4</div>', unsafe
 
 def get_video_id(url):
     try:
-        return parse_qs(urlparse(url).query)["v"][0]
+        parsed = urlparse(url)
+        if parsed.hostname == "youtu.be":
+            return parsed.path[1:]
+        return parse_qs(parsed.query).get("v", [None])[0]
     except:
         return None
 
+
 def get_transcript(video_id):
     try:
-        data = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+        try:
+            transcript = transcript_list.find_manually_created_transcript(['en'])
+        except:
+            transcript = transcript_list.find_generated_transcript(['en'])
+
+        data = transcript.fetch()
+
         text = " ".join([x['text'] for x in data])
         timestamps = [(x['start'], x['text']) for x in data]
+
         return text, timestamps
-    except:
+
+    except TranscriptsDisabled:
         return None, None
+    except NoTranscriptFound:
+        return None, None
+    except Exception:
+        return None, None
+
 
 def ai_main(text, duration, lang):
     prompt = f"""
 You are a 20-year expert.
 
-Provide:
+Give:
 1. Overview
 2. Key Points
 3. Insights
 4. Action Steps
 5. Most Important 20%
+6. Topic Breakdown
+7. Key Quotes
 
-Language: {lang}
 Length: {duration}
+Language: {lang}
 
 {text[:12000]}
 """
     res = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model="llama3-70b-8192",
         messages=[{"role":"user","content":prompt}]
     )
     return res.choices[0].message.content
 
 
-def ai_timestamps(timestamps):
+def ai_timeline(timestamps):
     sample = timestamps[:200]
     formatted = "\n".join([f"{int(t[0])} sec: {t[1]}" for t in sample])
 
-    prompt = f"""
-Summarize timeline into sections with timestamps.
+    prompt = f"Summarize this into timeline sections:\n{formatted}"
 
-{formatted}
-"""
     res = client.chat.completions.create(
         model="llama3-70b-8192",
         messages=[{"role":"user","content":prompt}]
@@ -95,11 +114,9 @@ Summarize timeline into sections with timestamps.
 
 def ai_shorts(text):
     prompt = f"""
-Find 5 viral short clips ideas from this content.
-
-Give:
+Give 5 viral short clip ideas:
 - Hook
-- Clip idea
+- Idea
 - Why viral
 
 {text[:8000]}
@@ -113,14 +130,14 @@ Give:
 
 def ai_chat(text, question):
     prompt = f"""
-Answer based ONLY on this video content:
+Answer ONLY from this content:
 
 {text[:10000]}
 
 Question: {question}
 """
     res = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="openai/gpt-oss-120b",
         messages=[{"role":"user","content":prompt}]
     )
     return res.choices[0].message.content
@@ -134,19 +151,20 @@ def create_pdf(text):
         pdf.multi_cell(0, 8, line)
     return pdf.output(dest="S").encode("latin-1")
 
+
 # =====================
-# UI INPUT
+# INPUT
 # =====================
 
-url = st.text_input("🔗 YouTube Link")
+url = st.text_input("🔗 Paste YouTube Link")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    duration = st.selectbox("⏱ Length", ["5 min","15 min","30 min"])
+    duration = st.selectbox("⏱ Summary Length", ["5 min", "15 min", "30 min"])
 
 with col2:
-    lang = st.selectbox("🌐 Language", ["English","Roman Urdu","Urdu"])
+    lang = st.selectbox("🌐 Language", ["English", "Roman Urdu", "Urdu"])
 
 # =====================
 # MAIN BUTTON
@@ -154,43 +172,54 @@ with col2:
 
 if st.button("🚀 Analyze Video"):
 
-    vid = get_video_id(url)
+    if not url:
+        st.warning("Enter a link")
+        st.stop()
 
-    if not vid:
+    if "live" in url:
+        st.error("❌ Live videos not supported. Use normal YouTube video.")
+        st.stop()
+
+    video_id = get_video_id(url)
+
+    if not video_id:
         st.error("Invalid URL")
         st.stop()
 
-    text, timestamps = get_transcript(vid)
+    text, timestamps = get_transcript(video_id)
 
     if not text:
-        st.error("No captions available")
+        st.error("❌ No captions found on this video")
         st.stop()
 
     st.success("Processing...")
 
     main = ai_main(text, duration, lang)
-    time_summary = ai_timestamps(timestamps)
+    timeline = ai_timeline(timestamps)
     shorts = ai_shorts(text)
 
-    st.markdown("## 📊 Main Analysis")
+    st.markdown("## 📊 Main Summary")
     st.markdown(f"<div class='box'>{main}</div>", unsafe_allow_html=True)
 
-    st.markdown("## ⏱ Timeline Summary")
-    st.write(time_summary)
+    st.markdown("## ⏱ Timeline")
+    st.write(timeline)
 
     st.markdown("## 🎬 Shorts Ideas")
     st.write(shorts)
 
     # Chat
-    st.markdown("## 💬 Ask Question from Video")
-    q = st.text_input("Type your question")
+    st.markdown("## 💬 Ask About Video")
+    q = st.text_input("Ask question")
 
     if q:
         ans = ai_chat(text, q)
         st.write(ans)
 
-    # Download
-    full = main + "\n\n" + time_summary + "\n\n" + shorts
+    # Downloads
+    full = main + "\n\n" + timeline + "\n\n" + shorts
 
-    st.download_button("📥 TXT", full, "full_summary.txt")
-    st.download_button("📄 PDF", create_pdf(full), "summary.pdf")
+    st.download_button("📥 Download TXT", full, "summary.txt")
+    st.download_button("📄 Download PDF", create_pdf(full), "summary.pdf")
+
+    # Audio preview
+    st.audio(f"https://translate.google.com/translate_tts?ie=UTF-8&q={main[:200]}&tl=en&client=tw-ob")
